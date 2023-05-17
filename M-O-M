@@ -1,0 +1,103 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+import "@openzeppelin/contracts/token/ERC721/ERC721.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721Enumerable.sol";
+import "@openzeppelin/contracts/token/ERC721/extensions/ERC721URIStorage.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/Counters.sol";
+
+contract MasterOfMemeToken is ERC721, ERC721Enumerable, ERC721URIStorage, Ownable {
+    using Counters for Counters.Counter;
+
+    Counters.Counter private _tokenIdCounter;
+
+    string private _baseTokenURI;
+
+    uint256 private constant BURN_FEE_PERCENT = 1;
+    uint256 private constant ROYALTY_FEE_PERCENT = 150;
+
+    address private _contractOwner;
+
+    mapping(uint256 => address) private _originalCreators;
+
+    constructor(string memory baseURI) ERC721("Master of Meme", "MEME") {
+        _baseTokenURI = baseURI;
+        _contractOwner = msg.sender;
+    }
+
+    function _baseURI() internal view override returns (string memory) {
+        return _baseTokenURI;
+    }
+
+    function mintNFT(address to, string memory tokenURI) external onlyOwner returns (uint256) {
+        _tokenIdCounter.increment();
+        uint256 tokenId = _tokenIdCounter.current();
+        _safeMint(to, tokenId);
+        _setTokenURI(tokenId, tokenURI);
+        _originalCreators[tokenId] = to;
+        return tokenId;
+    }
+
+    function burnNFT(uint256 tokenId) external onlyOwner {
+        require(_exists(tokenId), "Token does not exist");
+        _burn(tokenId);
+    }
+
+    function tokenURI(uint256 tokenId) public view override returns (string memory) {
+        require(_exists(tokenId), "Token does not exist");
+        return super.tokenURI(tokenId);
+    }
+
+    function supportsInterface(bytes4 interfaceId) public view override(ERC721, ERC721Enumerable) returns (bool) {
+        return super.supportsInterface(interfaceId);
+    }
+
+    function getOriginalCreator(uint256 tokenId) public view returns (address) {
+        require(_exists(tokenId), "Token does not exist");
+        return _originalCreators[tokenId];
+    }
+
+    function calculateBurnFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * BURN_FEE_PERCENT) / 100;
+    }
+
+    function calculateRoyaltyFee(uint256 amount) internal pure returns (uint256) {
+        return (amount * ROYALTY_FEE_PERCENT) / 10000;
+    }
+
+    function transferFrom(
+        address from,
+        address to,
+        uint256 tokenId
+    ) public override {
+        uint256 burnFee = calculateBurnFee(msg.value);
+        uint256 royaltyFee = calculateRoyaltyFee(msg.value);
+
+        address originalCreator = getOriginalCreator(tokenId);
+        require(originalCreator != address(0), "Original creator not found");
+
+        super.transferFrom(from, to, tokenId);
+
+        if (burnFee > 0) {
+            payable(_contractOwner).transfer(burnFee);
+        }
+
+        if (royaltyFee > 0) {
+            payable(originalCreator).transfer(royaltyFee);
+        }
+    }
+}
+
+contract MasterOfMemeMarketplace {
+    struct Listing {
+        address seller;
+        uint256 tokenId;
+        uint256 price;
+        bool active;
+    }
+
+    MasterOfMemeToken private _tokenContract;
+    uint256 private _listingIdCounter;
+
+    mapping(uint256 => Listing
